@@ -1,6 +1,7 @@
 openapi: '3.0.3'
 info:
-  title: API Title
+  title: RAG Data Ingestion API
+  description: REST API for document ingestion and retrieval-augmented generation
   version: '1.0'
 servers:
   - url: https://api.server.test/v1
@@ -32,3 +33,340 @@ paths:
                 required:
                   - status
 
+  /documents:
+    post:
+      summary: Upload a document
+      description: Upload a single document for ingestion and processing
+      operationId: uploadDocument
+      tags:
+        - Documents
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Document file to upload
+                metadata:
+                  type: object
+                  description: Optional metadata for the document
+                  properties:
+                    title:
+                      type: string
+                    description:
+                      type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
+              required:
+                - file
+      responses:
+        '201':
+          description: Document uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          description: Invalid request
+
+    get:
+      summary: List documents
+      description: Retrieve a list of all uploaded documents with pagination
+      operationId: listDocuments
+      tags:
+        - Documents
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of documents to return
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          description: Number of documents to skip
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+                  total:
+                    type: integer
+                    description: Total number of documents
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  /documents/{id}:
+    get:
+      summary: Get document details
+      description: Retrieve details and processing status for a specific document
+      operationId: getDocument
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Document details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '404':
+          description: Document not found
+
+    delete:
+      summary: Delete document
+      description: Remove document and all associated chunks
+      operationId: deleteDocument
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Document deleted successfully
+        '404':
+          description: Document not found
+
+  /documents/{id}/process:
+    post:
+      summary: Reprocess document
+      description: Trigger document reprocessing (chunking and embedding)
+      operationId: processDocument
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Processing started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: processing
+                  message:
+                    type: string
+                    example: Document processing initiated
+        '404':
+          description: Document not found
+
+  /documents/{id}/chunks:
+    get:
+      summary: Get document chunks
+      description: Retrieve all chunks generated from a document
+      operationId: getDocumentChunks
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of document chunks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chunks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Chunk'
+                  total:
+                    type: integer
+        '404':
+          description: Document not found
+
+  /query:
+    post:
+      summary: Query documents
+      description: Search across all ingested documents using semantic search
+      operationId: queryDocuments
+      tags:
+        - Query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: Search query
+                  example: What is retrieval-augmented generation?
+                limit:
+                  type: integer
+                  description: Maximum number of results to return
+                  default: 5
+                  minimum: 1
+                  maximum: 50
+              required:
+                - query
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QueryResult'
+                  query:
+                    type: string
+        '400':
+          description: Invalid query
+
+components:
+  schemas:
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique document identifier
+          example: doc_123abc
+        filename:
+          type: string
+          description: Original filename
+          example: research-paper.pdf
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+          description: Processing status
+          example: completed
+        metadata:
+          type: object
+          description: Document metadata
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+        created_at:
+          type: string
+          format: date-time
+          example: '2025-10-16T12:00:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2025-10-16T12:05:00Z'
+        chunk_count:
+          type: integer
+          description: Number of chunks generated
+          example: 15
+      required:
+        - id
+        - filename
+        - status
+        - created_at
+
+    Chunk:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique chunk identifier
+          example: chunk_456def
+        document_id:
+          type: string
+          description: Parent document ID
+          example: doc_123abc
+        content:
+          type: string
+          description: Chunk text content
+          example: Retrieval-augmented generation combines...
+        position:
+          type: integer
+          description: Position in document (0-indexed)
+          example: 0
+        metadata:
+          type: object
+          description: Chunk-specific metadata
+          properties:
+            page:
+              type: integer
+            section:
+              type: string
+      required:
+        - id
+        - document_id
+        - content
+        - position
+
+    QueryResult:
+      type: object
+      properties:
+        chunk:
+          $ref: '#/components/schemas/Chunk'
+        score:
+          type: number
+          format: float
+          description: Similarity score (0-1)
+          example: 0.87
+        document:
+          type: object
+          description: Parent document summary
+          properties:
+            id:
+              type: string
+            filename:
+              type: string
+            metadata:
+              type: object
+      required:
+        - chunk
+        - score
+        - document

@@ -1,0 +1,8 @@
+{
+  "storage": {
+    "documents_dir": "./data/documents"
+  },
+  "database": {
+    "path": "./data/rag.db"
+  }
+}
