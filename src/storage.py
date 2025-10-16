@@ -114,3 +114,22 @@ class FileStorage:
         """
         file_path = os.path.join(self.storage_dir, storage_filename)
         return os.path.exists(file_path)
+
+    def read_file(self, storage_filename: str) -> bytes:
+        """
+        Read a file from storage.
+
+        Args:
+            storage_filename: The storage filename to read
+
+        Returns:
+            bytes: File content
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            IOError: If file cannot be read
+        """
+        file_path = os.path.join(self.storage_dir, storage_filename)
+
+        with open(file_path, 'rb') as f:
+            return f.read()

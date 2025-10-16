@@ -59,6 +59,31 @@ def init_db(db_path: str) -> None:
         ON documents(status)
     """)
 
+    # Create chunks table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chunks (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            metadata_page INTEGER,
+            metadata_section TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Create indexes for chunks table
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chunks_document_id
+        ON chunks(document_id)
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chunks_position
+        ON chunks(document_id, position)
+    """)
+
     conn.commit()
     conn.close()
 

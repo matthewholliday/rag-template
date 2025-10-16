@@ -2,35 +2,48 @@
 Document service layer with business logic.
 
 This module handles document operations including upload, retrieval,
-listing, and deletion with coordination between storage and repository.
+listing, deletion, processing, and chunk management with coordination
+between storage, repositories, and chunking service.
 """
 import uuid
 from typing import Optional, List, Tuple
 from datetime import datetime
 
-from src.models import Document, DocumentMetadata
+from src.models import Document, DocumentMetadata, Chunk
 from src.document_repository import DocumentRepository
 from src.storage import FileStorage
+from src.chunk_repository import ChunkRepository
+from src.chunking_service import ChunkingService
 
 
 class DocumentService:
     """
     Service layer for document operations.
 
-    Coordinates between file storage and database repository to provide
-    complete document management functionality.
+    Coordinates between file storage, database repositories, and chunking
+    service to provide complete document management functionality.
     """
 
-    def __init__(self, repository: DocumentRepository, storage: FileStorage):
+    def __init__(
+        self,
+        repository: DocumentRepository,
+        storage: FileStorage,
+        chunk_repository: Optional[ChunkRepository] = None,
+        chunking_service: Optional[ChunkingService] = None
+    ):
         """
         Initialize the document service.
 
         Args:
             repository: Document repository for database operations
             storage: File storage for file operations
+            chunk_repository: Chunk repository for chunk database operations (optional)
+            chunking_service: Chunking service for document processing (optional)
         """
         self.repository = repository
         self.storage = storage
+        self.chunk_repository = chunk_repository
+        self.chunking_service = chunking_service or ChunkingService()
 
     def upload_document(
         self,
@@ -109,7 +122,7 @@ class DocumentService:
         """
         Delete a document.
 
-        Removes both the file from storage and the database record.
+        Removes chunks, file from storage, and the database record.
         This is a cascading delete operation.
 
         Args:
@@ -123,6 +136,14 @@ class DocumentService:
 
         if document is None:
             return False
+
+        # Delete chunks if chunk repository is configured
+        if self.chunk_repository is not None:
+            try:
+                self.chunk_repository.delete_chunks_by_document_id(document_id)
+            except Exception:
+                # Continue even if chunk deletion fails
+                pass
 
         # Delete file from storage (non-blocking, continues even if fails)
         try:
@@ -165,3 +186,95 @@ class DocumentService:
             return row['storage_path']
 
         return None
+
+    def process_document(self, document_id: str) -> dict:
+        """
+        Process a document by chunking its content.
+
+        Loads the document content from storage, chunks it using the chunking
+        service, and stores the chunks in the database. Updates document status
+        and chunk count.
+
+        Args:
+            document_id: The document ID to process
+
+        Returns:
+            dict: Processing status response with 'status' and 'message' keys
+
+        Raises:
+            ValueError: If document not found or chunk_repository not configured
+        """
+        # Validate document exists
+        document = self.repository.get_document_by_id(document_id)
+        if document is None:
+            raise ValueError(f"Document {document_id} not found")
+
+        # Validate chunk repository is configured
+        if self.chunk_repository is None:
+            raise ValueError("Chunk repository not configured")
+
+        try:
+            # Update status to processing
+            self.repository.update_document_status(document_id, "processing")
+
+            # Get storage path and load content
+            storage_path = self._get_document_storage_path(document_id)
+            if not storage_path:
+                raise ValueError(f"Storage path not found for document {document_id}")
+
+            # Read file content
+            content = self.storage.read_file(storage_path)
+
+            # Decode bytes to string (assuming UTF-8)
+            content_str = content.decode('utf-8', errors='ignore')
+
+            # Delete existing chunks for this document (for reprocessing)
+            self.chunk_repository.delete_chunks_by_document_id(document_id)
+
+            # Chunk the document
+            chunks = self.chunking_service.chunk_document(document_id, content_str)
+
+            # Save chunks to database
+            for chunk in chunks:
+                self.chunk_repository.create_chunk(chunk)
+
+            # Update document status and chunk count
+            self.repository.update_chunk_count(document_id, len(chunks))
+            self.repository.update_document_status(document_id, "completed")
+
+            return {
+                "status": "processing",
+                "message": "Document processing initiated"
+            }
+
+        except Exception as e:
+            # Update status to failed on error
+            self.repository.update_document_status(document_id, "failed")
+            raise
+
+    def get_document_chunks(self, document_id: str) -> Tuple[List[Chunk], int]:
+        """
+        Get all chunks for a document.
+
+        Args:
+            document_id: The document ID
+
+        Returns:
+            Tuple[List[Chunk], int]: (chunks, total_count)
+
+        Raises:
+            ValueError: If document not found or chunk_repository not configured
+        """
+        # Validate document exists
+        document = self.repository.get_document_by_id(document_id)
+        if document is None:
+            raise ValueError(f"Document {document_id} not found")
+
+        # Validate chunk repository is configured
+        if self.chunk_repository is None:
+            raise ValueError("Chunk repository not configured")
+
+        # Get chunks
+        chunks = self.chunk_repository.get_chunks_by_document_id(document_id)
+
+        return chunks, len(chunks)

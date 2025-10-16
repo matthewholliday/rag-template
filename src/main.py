@@ -10,13 +10,15 @@ from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import Response
 
-from src.models import StatusResponse, Document, DocumentListResponse, DocumentMetadata
+from src.models import StatusResponse, Document, DocumentListResponse, DocumentMetadata, ProcessResponse, ChunkListResponse
 from src.time_utils import get_current_timestamp
 from src.config import get_config
 from src.database import init_db
 from src.document_repository import DocumentRepository
+from src.chunk_repository import ChunkRepository
 from src.storage import FileStorage
 from src.document_service import DocumentService
+from src.chunking_service import ChunkingService
 
 # Load configuration - use environment variables if set for testing
 import os
@@ -36,8 +38,10 @@ init_db(config.database.path)
 
 # Create dependencies
 repository = DocumentRepository(config.database.path)
+chunk_repository = ChunkRepository(config.database.path)
 storage = FileStorage(config.storage.documents_dir)
-document_service = DocumentService(repository, storage)
+chunking_service = ChunkingService()
+document_service = DocumentService(repository, storage, chunk_repository, chunking_service)
 
 # Create FastAPI application instance
 app = FastAPI(
@@ -212,3 +216,91 @@ def delete_document(id: str) -> Response:
         raise HTTPException(status_code=404, detail="Document not found")
 
     return Response(status_code=204)
+
+
+@app.post(
+    "/documents/{id}/process",
+    response_model=ProcessResponse,
+    status_code=202,
+    tags=["Documents"],
+    summary="Reprocess document",
+    description="Trigger document reprocessing (chunking and embedding)"
+)
+def process_document(id: str) -> ProcessResponse:
+    """
+    Trigger document reprocessing.
+
+    Initiates the chunking process for the document, which splits
+    the document into smaller text segments for efficient retrieval.
+
+    Args:
+        id: Document ID
+
+    Returns:
+        ProcessResponse: Processing status with message
+
+    Raises:
+        HTTPException: 404 if document not found
+
+    Example Response:
+        {
+            "status": "processing",
+            "message": "Document processing initiated"
+        }
+    """
+    try:
+        result = document_service.process_document(id)
+        return ProcessResponse(**result)
+    except ValueError as e:
+        # Document not found or configuration error
+        if "not found" in str(e):
+            raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(
+    "/documents/{id}/chunks",
+    response_model=ChunkListResponse,
+    status_code=200,
+    tags=["Documents"],
+    summary="Get document chunks",
+    description="Retrieve all chunks generated from a document"
+)
+def get_document_chunks(id: str) -> ChunkListResponse:
+    """
+    Get all chunks for a document.
+
+    Returns the list of text chunks that were generated during
+    document processing, ordered by their position in the document.
+
+    Args:
+        id: Document ID
+
+    Returns:
+        ChunkListResponse: List of chunks with total count
+
+    Raises:
+        HTTPException: 404 if document not found
+
+    Example Response:
+        {
+            "chunks": [
+                {
+                    "id": "chunk_123abc",
+                    "document_id": "doc_456def",
+                    "content": "Document text content...",
+                    "position": 0,
+                    "metadata": {"page": 1, "section": "Introduction"}
+                }
+            ],
+            "total": 1
+        }
+    """
+    try:
+        chunks, total = document_service.get_document_chunks(id)
+        return ChunkListResponse(chunks=chunks, total=total)
+    except ValueError as e:
+        # Document not found or configuration error
+        if "not found" in str(e):
+            raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=500, detail=str(e))

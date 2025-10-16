@@ -164,3 +164,118 @@ class DocumentListResponse(BaseModel):
         ...,
         description="Number of documents skipped"
     )
+
+
+class ChunkMetadata(BaseModel):
+    """
+    Metadata for a document chunk.
+
+    Attributes:
+        page: Page number where the chunk is located (optional)
+        section: Section name where the chunk is located (optional)
+    """
+
+    page: Optional[int] = Field(
+        None,
+        description="Page number where the chunk is located"
+    )
+
+    section: Optional[str] = Field(
+        None,
+        description="Section name where the chunk is located"
+    )
+
+
+class Chunk(BaseModel):
+    """
+    Chunk model representing a text chunk from a document.
+
+    Attributes:
+        id: Unique chunk identifier
+        document_id: Parent document ID
+        content: Chunk text content
+        position: Position in document (0-indexed)
+        metadata: Optional chunk-specific metadata
+    """
+
+    id: str = Field(
+        ...,
+        description="Unique chunk identifier"
+    )
+
+    document_id: str = Field(
+        ...,
+        description="Parent document ID"
+    )
+
+    content: str = Field(
+        ...,
+        description="Chunk text content"
+    )
+
+    position: int = Field(
+        ...,
+        description="Position in document (0-indexed)"
+    )
+
+    metadata: Optional[ChunkMetadata] = Field(
+        None,
+        description="Chunk-specific metadata"
+    )
+
+    class Config:
+        """Pydantic model configuration."""
+        json_schema_extra = {
+            "example": {
+                "id": "chunk_456def",
+                "document_id": "doc_123abc",
+                "content": "Retrieval-augmented generation combines...",
+                "position": 0,
+                "metadata": {
+                    "page": 1,
+                    "section": "Introduction"
+                }
+            }
+        }
+
+
+class ChunkListResponse(BaseModel):
+    """
+    Response model for listing chunks.
+
+    Attributes:
+        chunks: List of chunks
+        total: Total number of chunks
+    """
+
+    chunks: List[Chunk] = Field(
+        ...,
+        description="List of chunks"
+    )
+
+    total: int = Field(
+        ...,
+        description="Total number of chunks"
+    )
+
+
+class ProcessResponse(BaseModel):
+    """
+    Response model for document processing endpoint.
+
+    Attributes:
+        status: Processing status
+        message: Status message
+    """
+
+    status: str = Field(
+        ...,
+        description="Processing status",
+        examples=["processing"]
+    )
+
+    message: str = Field(
+        ...,
+        description="Status message",
+        examples=["Document processing initiated"]
+    )
